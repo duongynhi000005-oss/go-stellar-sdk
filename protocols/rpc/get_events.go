@@ -405,7 +405,7 @@ func (s *SegmentFilter) UnmarshalJSON(p []byte) error {
 	if err != nil {
 		return err
 	}
-	if err = validScVal(raw); err != nil {
+	if err = xdr.ValidateExact(xdr.ScValView(raw)); err != nil {
 		return err
 	}
 	s.ScVal = raw

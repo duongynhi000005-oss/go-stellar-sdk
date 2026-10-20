@@ -246,3 +246,58 @@ func TestView_RandXDR_LedgerEntryLedgerKey(t *testing.T) {
 	}
 	require.Len(t, types, len(LedgerEntryTypeMap), "every entry type must be generated")
 }
+
+// TestView_RandXDR_TransactionEnvelopeTransaction checks that
+// TransactionEnvelopeView.Transaction returns exactly the XDR of the
+// transaction the decoded TransactionEnvelope helpers read, for random V0, V1
+// and fee-bump envelopes.
+func TestView_RandXDR_TransactionEnvelopeTransaction(t *testing.T) {
+	const iterations = 200
+	gen := randxdr.NewGenerator()
+	types := map[EnvelopeType]bool{}
+
+	for i := range iterations {
+		shape := &gxdr.TransactionEnvelope{}
+		gen.Next(shape, randxdr.LedgerCloseMetaPresets)
+
+		var env TransactionEnvelope
+		require.NoError(t, gxdr.Convert(shape, &env))
+		types[env.Type] = true
+		raw, err := env.MarshalBinary()
+		require.NoError(t, err)
+
+		var ext TransactionExt // a V0 transaction has no Soroban data
+		switch env.Type {
+		case EnvelopeTypeEnvelopeTypeTx:
+			ext = env.V1.Tx.Ext
+		case EnvelopeTypeEnvelopeTypeTxFeeBump:
+			ext = env.FeeBump.Tx.InnerTx.V1.Tx.Ext
+		}
+		want, err := Transaction{
+			SourceAccount: env.SourceAccount(),
+			Fee:           Uint32(env.Fee()),
+			SeqNum:        SequenceNumber(env.SeqNum()),
+			Cond:          env.Preconditions(),
+			Memo:          env.Memo(),
+			Operations:    env.Operations(),
+			Ext:           ext,
+		}.MarshalBinary()
+		require.NoError(t, err)
+
+		tx, err := TransactionEnvelopeView(raw).Transaction()
+		require.NoError(t, err, "iteration %d", i)
+		require.Equal(t, want, []byte(tx), "iteration %d", i)
+	}
+	for _, typ := range []EnvelopeType{
+		EnvelopeTypeEnvelopeTypeTxV0,
+		EnvelopeTypeEnvelopeTypeTx,
+		EnvelopeTypeEnvelopeTypeTxFeeBump,
+	} {
+		require.True(t, types[typ], "no %v envelope was generated", typ)
+	}
+
+	_, err := TransactionEnvelopeView{0, 0, 0, 1}.Transaction() // ENVELOPE_TYPE_SCP
+	require.Error(t, err)
+	_, err = Try(TransactionEnvelopeView{0, 0, 0, 2}.MustTransaction) // a V1 type with no transaction
+	require.Error(t, err)
+}

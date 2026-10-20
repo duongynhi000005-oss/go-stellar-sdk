@@ -136,24 +136,10 @@ var jsonNull = []byte("null")
 // request: a JSON string holding the base64 of the view's XDR bytes. It
 // rejects views that do not hold exactly one well-formed ScVal.
 func TopicScVal(v xdr.ScValView) (json.RawMessage, error) {
-	if err := validScVal(v); err != nil {
+	if err := xdr.ValidateExact(v); err != nil {
 		return nil, err
 	}
 	return json.Marshal(v) // []byte marshals as std base64
-}
-
-// validScVal checks, through the view and without decoding, that v holds
-// exactly one well-formed ScVal. A well-formed ScVal has a single XDR
-// encoding, so topics that pass can be compared as bytes.
-func validScVal(v xdr.ScValView) error {
-	raw, err := v.Raw()
-	if err != nil {
-		return err
-	}
-	if len(raw) != len(v) {
-		return fmt.Errorf("%d trailing bytes after ScVal", len(v)-len(raw))
-	}
-	return v.ValidateFull()
 }
 
 // QueryEventsRequest is the union of two request shapes: a
@@ -294,7 +280,7 @@ func (f *QueryEventsFilter) valid(index int, xdrInputFormat string) error {
 		// Unmarshalling into a view base64-decodes without building an
 		// ScVal tree.
 		var view xdr.ScValView
-		if json.Unmarshal(topic, &view) != nil || validScVal(view) != nil {
+		if json.Unmarshal(topic, &view) != nil || xdr.ValidateExact(view) != nil {
 			return invalidParamsf("filters[%d].topic%d is not valid base64-encoded XDR", index, pos)
 		}
 	}

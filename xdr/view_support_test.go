@@ -260,3 +260,16 @@ func assertShortBuffer(t *testing.T, err error) {
 	require.True(t, errors.As(err, &vErr), "expected *ViewError, got %T: %v", err, err)
 	require.Equal(t, ViewErrShortBuffer, vErr.Kind)
 }
+
+// ------ ValidateExact ------
+
+func TestValidateExact(t *testing.T) {
+	u64 := Uint64(64)
+	raw, err := ScVal{Type: ScValTypeScvU64, U64: &u64}.MarshalBinary()
+	require.NoError(t, err)
+	require.NoError(t, ValidateExact(ScValView(raw)))
+
+	require.Error(t, ValidateExact(ScValView(append(append([]byte{}, raw...), 0, 0, 0, 0))), "trailing bytes")
+	require.Error(t, ValidateExact(ScValView(raw[:len(raw)-4])), "truncated value")
+	require.Error(t, ValidateExact(ScValView{0, 0, 0, 0, 0, 0, 0, 2}), "a bool of 2")
+}
