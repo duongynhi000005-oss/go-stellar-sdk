@@ -205,3 +205,44 @@ func TestView_RandXDR_Fields(t *testing.T) {
 		}
 	}
 }
+
+// TestView_RandXDR_LedgerEntryLedgerKey checks LedgerEntryView.LedgerKey
+// against the marshaled LedgerEntry.LedgerKey on random entries of every type.
+func TestView_RandXDR_LedgerEntryLedgerKey(t *testing.T) {
+	const iterations = 1000
+	gen := randxdr.NewGenerator()
+	types := map[LedgerEntryType]bool{}
+
+	for i := range iterations {
+		shape := &gxdr.LedgerEntry{}
+		gen.Next(shape, nil)
+
+		var entry LedgerEntry
+		require.NoError(t, gxdr.Convert(shape, &entry))
+		types[entry.Data.Type] = true
+
+		key, err := entry.LedgerKey()
+		require.NoError(t, err)
+		want, err := key.MarshalBinary()
+		require.NoError(t, err)
+
+		data, err := entry.MarshalBinary()
+		require.NoError(t, err)
+		// A prefix too short for the key gives an error, and the first that
+		// holds it gives the key, before the end of the entry. The capacity is
+		// capped so a read past the prefix panics.
+		n := 0
+		for ; n < len(data); n++ {
+			if got, e := LedgerEntryView(data[:n:n]).LedgerKey(); e == nil {
+				require.Equal(t, want, []byte(got), "iteration %d, prefix %d", i, n)
+				break
+			}
+		}
+		require.Less(t, n, len(data), "iteration %d: the key needs the whole entry", i)
+		got, err := LedgerEntryView(data).LedgerKey()
+		require.NoError(t, err, "iteration %d", i)
+		clear(data) // the key must not alias the entry
+		require.Equal(t, want, []byte(got), "iteration %d", i)
+	}
+	require.Len(t, types, len(LedgerEntryTypeMap), "every entry type must be generated")
+}
