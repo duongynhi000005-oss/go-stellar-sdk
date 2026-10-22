@@ -305,3 +305,39 @@ func TestView_RandXDR_TransactionEnvelopeTransaction(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestView_RandXDR_MuxedAccountToAccountId checks MuxedAccountView.ToAccountId
+// against the marshaled MuxedAccount.ToAccountId for random muxed accounts of
+// both key types.
+func TestView_RandXDR_MuxedAccountToAccountId(t *testing.T) {
+	gen := randxdr.NewGenerator()
+	types := map[CryptoKeyType]bool{}
+	for i := range 100 {
+		shape := &gxdr.MuxedAccount{}
+		gen.Next(shape, nil)
+
+		var account MuxedAccount
+		require.NoError(t, gxdr.Convert(shape, &account))
+		types[account.Type] = true
+		want, err := account.ToAccountId().MarshalBinary()
+		require.NoError(t, err)
+
+		raw, err := account.MarshalBinary()
+		require.NoError(t, err)
+		// The account is followed by other bytes, as inside an envelope.
+		got, err := MuxedAccountView(append(raw, 1, 2, 3, 4)).ToAccountId()
+		require.NoError(t, err, "iteration %d", i)
+		require.Equal(t, want, []byte(got), "iteration %d", i)
+	}
+	require.Len(t, types, 2, "both key types must be generated")
+
+	for name, invalid := range map[string][]byte{
+		// KEY_TYPE_PRE_AUTH_TX is a CryptoKeyType but not a muxed account type.
+		"pre-auth tx key type":    append([]byte{0, 0, 0, 1}, make([]byte, 32)...),
+		"truncated ed25519":       append([]byte{0, 0, 0, 0}, make([]byte, 31)...),
+		"truncated muxed ed25519": append([]byte{0, 0, 1, 0}, make([]byte, 39)...),
+	} {
+		_, err := MuxedAccountView(invalid).ToAccountId()
+		require.Error(t, err, name)
+	}
+}
