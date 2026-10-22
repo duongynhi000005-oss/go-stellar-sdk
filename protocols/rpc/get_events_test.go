@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/gxdr"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/randxdr"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
@@ -936,4 +939,77 @@ func TestSegmentFilterMatchesEquals(t *testing.T) {
 	}
 	// Equal values from different draws exercise more than identity.
 	require.Positive(t, equal)
+}
+
+// TestGetEventsRequestMatchesFilters checks that a request with several
+// filters, which share one encoding of an event's topics, matches the events
+// at least one of its filters matches on its own.
+func TestGetEventsRequestMatchesFilters(t *testing.T) {
+	gen := randxdr.NewGenerator()
+	events := make([]xdr.DiagnosticEvent, 50)
+	for i := range events {
+		shape := &gxdr.ContractEvent{}
+		gen.Next(shape, randxdr.LedgerCloseMetaPresets)
+		require.NoError(t, gxdr.Convert(shape, &events[i].Event))
+	}
+
+	// Filters are built from events with topics, so that each is one a client
+	// can send.
+	var withTopics []xdr.DiagnosticEvent
+	for _, event := range events {
+		if len(event.Event.Body.MustV0().Topics) > 0 {
+			withTopics = append(withTopics, event)
+		}
+	}
+
+	rng := rand.New(rand.NewSource(1)) //nolint:gosec // a fixed seed keeps the test data reproducible
+	star, dstar := WildCardExactOne, WildCardZeroOrMore
+	// topicFilter returns a filter that matches event: each of a random number
+	// of leading positions, at least one, is the event's topic or "*",
+	// followed by "**" when the event has more topics.
+	topicFilter := func(event xdr.DiagnosticEvent) TopicFilter {
+		topics := event.Event.Body.MustV0().Topics
+		filter := TopicFilter{}
+		for _, topic := range topics[:1+rng.Intn(min(len(topics), MaxTopicCount))] {
+			if rng.Intn(2) == 0 {
+				filter = append(filter, SegmentFilter{Wildcard: &star})
+			} else {
+				filter = append(filter, SegmentFilter{ScVal: scValXDR(t, topic)})
+			}
+		}
+		if len(filter) < len(topics) {
+			filter = append(filter, SegmentFilter{Wildcard: &dstar})
+		}
+		return filter
+	}
+
+	types := []string{EventTypeContract, EventTypeSystem, EventTypeDiagnostic}
+	matched, unmatched := 0, 0
+	for range 200 {
+		var request GetEventsRequest
+		for range 2 + rng.Intn(3) {
+			var filter EventFilter
+			if rng.Intn(3) == 0 {
+				filter.EventType = EventTypeSet{types[rng.Intn(len(types))]: nil}
+			}
+			if id := events[rng.Intn(len(events))].Event.ContractId; id != nil && rng.Intn(3) == 0 {
+				filter.ContractIDs = []string{strkey.MustEncode(strkey.VersionByteContract, id[:])}
+			}
+			for range 1 + rng.Intn(2) {
+				filter.Topics = append(filter.Topics, topicFilter(withTopics[rng.Intn(len(withTopics))]))
+			}
+			request.Filters = append(request.Filters, filter)
+		}
+		for i, event := range events {
+			want := slices.ContainsFunc(request.Filters, func(f EventFilter) bool { return f.Matches(event) })
+			require.Equal(t, want, request.Matches(event), "event %d", i)
+			if want {
+				matched++
+			} else {
+				unmatched++
+			}
+		}
+	}
+	require.Positive(t, matched)
+	require.Positive(t, unmatched)
 }
