@@ -1,6 +1,7 @@
 package xdr
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"testing"
@@ -272,4 +273,21 @@ func TestValidateExact(t *testing.T) {
 	require.Error(t, ValidateExact(ScValView(append(append([]byte{}, raw...), 0, 0, 0, 0))), "trailing bytes")
 	require.Error(t, ValidateExact(ScValView(raw[:len(raw)-4])), "truncated value")
 	require.Error(t, ValidateExact(ScValView{0, 0, 0, 0, 0, 0, 0, 2}), "a bool of 2")
+}
+
+// ------ ViewFromBase64 ------
+
+func TestViewFromBase64(t *testing.T) {
+	u64 := Uint64(64)
+	raw, err := ScVal{Type: ScValTypeScvU64, U64: &u64}.MarshalBinary()
+	require.NoError(t, err)
+
+	got, err := ViewFromBase64[ScValView](base64.StdEncoding.EncodeToString(raw))
+	require.NoError(t, err)
+	require.Equal(t, ScValView(raw), got)
+
+	_, err = ViewFromBase64[ScValView]("not base64")
+	require.Error(t, err)
+	_, err = ViewFromBase64[ScValView](base64.StdEncoding.EncodeToString(append(append([]byte{}, raw...), 0, 0, 0, 0)))
+	require.Error(t, err, "trailing bytes")
 }

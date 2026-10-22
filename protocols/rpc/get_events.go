@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -401,14 +400,11 @@ func (s *SegmentFilter) UnmarshalJSON(p []byte) error {
 		s.Wildcard = &tmp
 		return nil
 	}
-	raw, err := base64.StdEncoding.DecodeString(tmp)
+	scVal, err := xdr.ViewFromBase64[xdr.ScValView](tmp)
 	if err != nil {
 		return err
 	}
-	if err = xdr.ValidateExact(xdr.ScValView(raw)); err != nil {
-		return err
-	}
-	s.ScVal = raw
+	s.ScVal = scVal
 	return nil
 }
 

@@ -277,10 +277,11 @@ func (f *QueryEventsFilter) valid(index int, xdrInputFormat string) error {
 		if topic == nil {
 			continue
 		}
-		// Unmarshalling into a view base64-decodes without building an
-		// ScVal tree.
-		var view xdr.ScValView
-		if json.Unmarshal(topic, &view) != nil || xdr.ValidateExact(view) != nil {
+		var b64 string
+		if json.Unmarshal(topic, &b64) != nil {
+			return invalidParamsf("filters[%d].topic%d is not valid base64-encoded XDR", index, pos)
+		}
+		if _, err := xdr.ViewFromBase64[xdr.ScValView](b64); err != nil {
 			return invalidParamsf("filters[%d].topic%d is not valid base64-encoded XDR", index, pos)
 		}
 	}
