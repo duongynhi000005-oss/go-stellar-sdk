@@ -286,7 +286,9 @@ func TestView_RandXDR_TransactionEnvelopeTransaction(t *testing.T) {
 
 		tx, err := TransactionEnvelopeView(raw).Transaction()
 		require.NoError(t, err, "iteration %d", i)
-		require.Equal(t, want, []byte(tx), "iteration %d", i)
+		txXDR, err := tx.Raw()
+		require.NoError(t, err, "iteration %d", i)
+		require.Equal(t, want, txXDR, "iteration %d", i)
 	}
 	for _, typ := range []EnvelopeType{
 		EnvelopeTypeEnvelopeTypeTxV0,
@@ -298,6 +300,8 @@ func TestView_RandXDR_TransactionEnvelopeTransaction(t *testing.T) {
 
 	_, err := TransactionEnvelopeView{0, 0, 0, 1}.Transaction() // ENVELOPE_TYPE_SCP
 	require.Error(t, err)
-	_, err = Try(TransactionEnvelopeView{0, 0, 0, 2}.MustTransaction) // a V1 type with no transaction
+	_, err = Try(func() []byte { // a V1 type with no transaction
+		return TransactionEnvelopeView{0, 0, 0, 2}.MustTransaction().MustRaw()
+	})
 	require.Error(t, err)
 }
