@@ -1,12 +1,16 @@
 package datastore
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -201,53 +205,73 @@ func (f *FilesystemDataStore) ListFilePaths(ctx context.Context, options ListFil
 		limit = listFilePathsMaxLimit
 	}
 
-	var files []string
-	err := filepath.WalkDir(f.basePath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+	// Ensure the prefix ends with a slash so the query returns only objects
+	// within that directory, not similarly named paths like "a/b-1".
+	fullPrefix := listRoot(path.Join("", options.Prefix))
 
-		// Check for context cancellation
+	var files []string
+	var walk func(dir, relDir string) error
+	walk = func(dir, relDir string) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		// Skip directories
-		if d.IsDir() {
-			return nil
-		}
-
-		// Get path relative to basePath and normalize to forward slashes
-		relPath, err := filepath.Rel(f.basePath, path)
+		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return err
 		}
-		relPath = filepath.ToSlash(relPath)
 
-		// Apply prefix filter
-		if options.Prefix != "" && !strings.HasPrefix(relPath, options.Prefix) {
-			return nil
-		}
+		slices.SortFunc(entries, func(a, b os.DirEntry) int {
+			return cmp.Compare(dirEntrySortKey(a), dirEntrySortKey(b))
+		})
 
-		// Apply StartAfter filter (WalkDir walks in lexical order)
-		if options.StartAfter != "" && relPath <= options.StartAfter {
-			return nil
-		}
+		for _, d := range entries {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 
-		files = append(files, relPath)
+			relPath := d.Name()
+			if relDir != "" {
+				relPath = relDir + "/" + d.Name()
+			}
 
-		// Stop early if we've reached the limit
-		if len(files) >= int(limit) {
-			return filepath.SkipAll
+			if d.IsDir() {
+				if err := walk(filepath.Join(dir, d.Name()), relPath); err != nil {
+					return err
+				}
+				continue
+			}
+
+			if fullPrefix != "" && !strings.HasPrefix(relPath, fullPrefix) {
+				continue
+			}
+
+			if options.StartAfter != "" && relPath <= options.StartAfter {
+				continue
+			}
+
+			files = append(files, relPath)
+			if len(files) >= int(limit) {
+				return fs.SkipAll
+			}
 		}
 
 		return nil
-	})
-	if err != nil && err != filepath.SkipAll {
+	}
+
+	err := walk(f.basePath, "")
+	if err != nil && !errors.Is(err, fs.SkipAll) {
 		return nil, err
 	}
 
 	return files, nil
+}
+
+func dirEntrySortKey(d os.DirEntry) string {
+	if d.IsDir() {
+		return d.Name() + "/"
+	}
+	return d.Name()
 }
 
 // Close is a no-op for FilesystemDataStore as it doesn't maintain persistent connections.

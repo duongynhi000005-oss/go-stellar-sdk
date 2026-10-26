@@ -204,14 +204,62 @@ func TestFilesystemListFilePaths_WithPrefix(t *testing.T) {
 
 	// Create directory structure
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a-1"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "b"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "x"), []byte("1"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "y"), []byte("1"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a-1", "x"), []byte("1"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "b", "z"), []byte("1"), 0600))
 
 	paths, err := store.ListFilePaths(context.Background(), ListFileOptions{Prefix: "a", Limit: 10})
 	require.NoError(t, err)
 	require.Equal(t, []string{"a/x", "a/y"}, paths)
+}
+
+func TestFilesystemListFilePaths_ByteOrderAndPaging(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFilesystemDataStoreWithPath(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	// Create a directory and sibling entries whose names begin with the directory
+	// name followed by characters below '/' ('-' and '.') and above '/' ('0').
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "FFFFFFFF--0-63999"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "FFFFFFFF--0-63999", "a.xdr.zst"), []byte("1"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "FFFFFFFF--0-63999", "b.xdr.zst"), []byte("1"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "FFFFFFFF--0-63999-extra"), []byte("1"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "FFFFFFFF--0-63999.bak"), []byte("1"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "FFFFFFFF--0-639990"), []byte("1"), 0600))
+
+	want := []string{
+		"FFFFFFFF--0-63999-extra",
+		"FFFFFFFF--0-63999.bak",
+		"FFFFFFFF--0-63999/a.xdr.zst",
+		"FFFFFFFF--0-63999/b.xdr.zst",
+		"FFFFFFFF--0-639990",
+	}
+
+	paths, err := store.ListFilePaths(context.Background(), ListFileOptions{})
+	require.NoError(t, err)
+	require.Equal(t, want, paths)
+
+	// Paging one key at a time with StartAfter must return the exact same sequence
+	// without repeating or skipping entries.
+	var paged []string
+	startAfter := ""
+	for {
+		page, err := store.ListFilePaths(context.Background(), ListFileOptions{
+			StartAfter: startAfter,
+			Limit:      1,
+		})
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		paged = append(paged, page...)
+		startAfter = page[len(page)-1]
+	}
+	require.Equal(t, want, paged)
 }
 
 func TestFilesystemListFilePaths_LimitDefaultAndCap(t *testing.T) {
