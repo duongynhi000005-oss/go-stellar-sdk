@@ -327,12 +327,14 @@ func decodeString(src string) ([]byte, error) {
 			return nil, errors.New("non-canonical strkey; unused bits should be set to 0")
 		}
 	}
-	n, err := base32.StdEncoding.WithPadding(base32.NoPadding).Decode(srcBytes, srcBytes)
+	decodedLen := encoding.DecodedLen(len(srcBytes))
+	decoded := make([]byte, decodedLen)
+	n, err := encoding.Decode(decoded, srcBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "base32 decode failed")
 	}
 
-	return srcBytes[:n], nil
+	return decoded[:n], nil
 }
 
 // IsValidEd25519PublicKey validates a stellar public key

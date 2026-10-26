@@ -10,6 +10,13 @@ func TestMaxEncodedSize(t *testing.T) {
 	assert.Equal(t, encoding.EncodedLen(maxRawSize), maxEncodedSize)
 }
 
+func TestDecodeString_DecodedCapMatchesDecodedLen(t *testing.T) {
+	addr := "GA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQHES5"
+	decoded, err := decodeString(addr)
+	assert.NoError(t, err)
+	assert.Equal(t, encoding.DecodedLen(len(addr)), cap(decoded))
+}
+
 func TestVersion(t *testing.T) {
 	cases := []struct {
 		Name                string
