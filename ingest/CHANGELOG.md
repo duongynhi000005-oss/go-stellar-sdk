@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. This projec
 * `ledger.NodeID` and `ledger.Signature` read the close-value signature from the CAP-0088 millisecond close-time arms (`STELLAR_VALUE_SIGNED_MS`, `STELLAR_VALUE_EMPTY_TX_SET_MS`), which every ledger after the Protocol 30 upgrade uses. Whole-second `CloseTime` is unchanged.
 
 ### Bug Fixes
+* `ApplyLedgerMetadata` now accepts single-ledger bounded ranges (`SingleLedgerRange(seq)` / `BoundedRange(seq, seq)`), rejecting only inverted ranges where `To() < From()` ([#6018](https://github.com/stellar/go-stellar-sdk/issues/6018)).
 * `ledger.NodeID` and `ledger.Signature` now also read the signature from the `STELLAR_VALUE_EMPTY_TX_SET` arm (CAP-0083). Ledgers closed with an empty transaction set previously returned an error and an empty signature.
 
 ### Breaking Changes

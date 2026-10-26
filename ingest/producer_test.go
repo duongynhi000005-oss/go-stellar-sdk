@@ -82,6 +82,32 @@ func TestBSBProducerFn(t *testing.T) {
 	assert.Equal(t, expectedLcmSeqWasPublished, []bool{true, true}, "producer fn did not invoke callback for all expected lcm")
 }
 
+func TestBSBProducerFnSingleLedgerRange(t *testing.T) {
+	seq := uint32(100)
+	ctx := context.Background()
+	ledgerRange := ledgerbackend.SingleLedgerRange(seq)
+	mockDataStore := createMockdataStore(t, seq, seq, 64000)
+	dsConfig := datastore.DataStoreConfig{}
+	pubConfig := PublisherConfig{
+		DataStoreConfig:       dsConfig,
+		BufferedStorageConfig: DefaultBufferedStorageBackendConfig(1),
+	}
+
+	datastoreFactory = func(ctx context.Context, datastoreConfig datastore.DataStoreConfig) (datastore.DataStore, error) {
+		assert.Equal(t, datastoreConfig, dsConfig)
+		return mockDataStore, nil
+	}
+
+	var received []uint32
+	appCallback := func(lcm xdr.LedgerCloseMeta) error {
+		received = append(received, uint32(lcm.MustV0().LedgerHeader.Header.LedgerSeq))
+		return nil
+	}
+
+	require.NoError(t, ApplyLedgerMetadata(ledgerRange, pubConfig, ctx, appCallback))
+	assert.Equal(t, []uint32{seq}, received)
+}
+
 func TestBSBProducerFnDataStoreError(t *testing.T) {
 	ctx := context.Background()
 	ledgerRange := ledgerbackend.BoundedRange(uint32(2), uint32(3))
